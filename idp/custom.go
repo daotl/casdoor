@@ -98,8 +98,15 @@ func (idp *CustomIdProvider) GetUserInfo(token *oauth2.Token) (*UserInfo, error)
 		return nil, err
 	}
 
+	fmt.Println("dataMap")
+	for k, v := range dataMap {
+		fmt.Printf("k = %s, v = %s", k, v)
+	}
+
 	// map user info
+	fmt.Println("idp.UserMapping")
 	for k, v := range idp.UserMapping {
+		fmt.Printf("k = %s, v = %s", k, v)
 		_, ok := dataMap[v]
 		if !ok {
 			return nil, fmt.Errorf("cannot find %s in user from castom provider", v)
