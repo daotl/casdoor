@@ -1,27 +1,47 @@
 version: '3.1'
 services:
   casdoor:
-    restart: always
-    build:
-      context: ./
-      dockerfile: Dockerfile
-      target: STANDARD
+    restart: unless-stopped
+    image: casbin/casdoor:v1.416.0
+    #build:
+    #  context: ./
+    #  dockerfile: Dockerfile
+    #  target: STANDARD
     entrypoint: /bin/sh -c './server --createDatabase=true'
-    ports:
-      - "8000:8000"
+    networks:
+      - web
+      - default
+    #ports:
+    #  - "8000:8000"
+    expose:
+      - 8000
     depends_on:
-      - db
+      - postgres
     environment:
       RUNNING_IN_DOCKER: "true"
     volumes:
       - ./conf:/conf/
-  db:
-    restart: always
-    image: mysql:8.0.25
-    platform: linux/amd64
-    ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: 123456
+    labels:
+      caddy: casdoor.example.com
+      caddy.reverse_proxy: '{{upstreams 8000}}'
+
+  postgres:
+    restart: unless-stopped
+    image: postgres:16rc1-alpine
     volumes:
-      - /usr/local/docker/mysql:/var/lib/mysql
+      - casdoor_postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: casdoor
+      POSTGRES_PASSWORD: casdoor
+      POSTGRES_DB: casdoor
+
+networks:
+  web:
+    external: true
+
+volumes:
+  casdoor_postgres:
+    driver_opts:
+      type: none
+      device: ${VOLUMES_ROOT}/postgres
+      o: bind
