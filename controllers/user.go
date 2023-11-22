@@ -160,35 +160,51 @@ func (c *ApiController) GetUser() {
 		id = util.GetId(userFromUserId.Owner, userFromUserId.Name)
 	}
 
-	if owner == "" {
-		owner = util.GetOwnerFromId(id)
-	}
+	var user *object.User
+	if id == "" && owner == "" {
+		switch {
+		case email != "":
+			user, err = object.GetUserByEmailOnly(email)
+		case phone != "":
+			user, err = object.GetUserByPhoneOnly(phone)
+		case userId != "":
+			user, err = object.GetUserByUserIdOnly(userId)
+		}
+	} else {
+		if owner == "" {
+			owner = util.GetOwnerFromId(id)
+		}
 
-	organization, err := object.GetOrganization(util.GetId("admin", owner))
-	if err != nil {
-		c.ResponseError(err.Error())
-		return
-	}
-
-	if !organization.IsProfilePublic {
-		requestUserId := c.GetSessionUsername()
-		hasPermission, err := object.CheckUserPermission(requestUserId, id, false, c.GetAcceptLanguage())
-		if !hasPermission {
+		var organization *object.Organization
+		organization, err = object.GetOrganization(util.GetId("admin", owner))
+		if err != nil {
 			c.ResponseError(err.Error())
 			return
 		}
-	}
+		if organization == nil {
+			c.ResponseError(fmt.Sprintf("the organization: %s is not found", owner))
+			return
+		}
 
-	var user *object.User
-	switch {
-	case email != "":
-		user, err = object.GetUserByEmail(owner, email)
-	case phone != "":
-		user, err = object.GetUserByPhone(owner, phone)
-	case userId != "":
-		user = userFromUserId
-	default:
-		user, err = object.GetUser(id)
+		if !organization.IsProfilePublic {
+			requestUserId := c.GetSessionUsername()
+			hasPermission, err := object.CheckUserPermission(requestUserId, id, false, c.GetAcceptLanguage())
+			if !hasPermission {
+				c.ResponseError(err.Error())
+				return
+			}
+		}
+
+		switch {
+		case email != "":
+			user, err = object.GetUserByEmail(owner, email)
+		case phone != "":
+			user, err = object.GetUserByPhone(owner, phone)
+		case userId != "":
+			user = userFromUserId
+		default:
+			user, err = object.GetUser(id)
+		}
 	}
 
 	if err != nil {
@@ -460,16 +476,16 @@ func (c *ApiController) SetPassword() {
 	isAdmin := c.IsAdmin()
 	if isAdmin {
 		if oldPassword != "" {
-			msg := object.CheckPassword(targetUser, oldPassword, c.GetAcceptLanguage())
-			if msg != "" {
-				c.ResponseError(msg)
+			err = object.CheckPassword(targetUser, oldPassword, c.GetAcceptLanguage())
+			if err != nil {
+				c.ResponseError(err.Error())
 				return
 			}
 		}
-	} else {
-		msg := object.CheckPassword(targetUser, oldPassword, c.GetAcceptLanguage())
-		if msg != "" {
-			c.ResponseError(msg)
+	} else if code == "" {
+		err = object.CheckPassword(targetUser, oldPassword, c.GetAcceptLanguage())
+		if err != nil {
+			c.ResponseError(err.Error())
 			return
 		}
 	}
@@ -502,11 +518,11 @@ func (c *ApiController) CheckUserPassword() {
 		return
 	}
 
-	_, msg := object.CheckUserPassword(user.Owner, user.Name, user.Password, c.GetAcceptLanguage())
-	if msg == "" {
-		c.ResponseOk()
+	_, err = object.CheckUserPassword(user.Owner, user.Name, user.Password, c.GetAcceptLanguage())
+	if err != nil {
+		c.ResponseError(err.Error())
 	} else {
-		c.ResponseError(msg)
+		c.ResponseOk()
 	}
 }
 
@@ -560,11 +576,11 @@ func (c *ApiController) GetUserCount() {
 	c.ResponseOk(count)
 }
 
-// AddUserkeys
-// @Title AddUserkeys
+// AddUserKeys
+// @Title AddUserKeys
 // @router /add-user-keys [post]
 // @Tag User API
-func (c *ApiController) AddUserkeys() {
+func (c *ApiController) AddUserKeys() {
 	var user object.User
 	err := json.Unmarshal(c.Ctx.Input.RequestBody, &user)
 	if err != nil {
@@ -573,7 +589,7 @@ func (c *ApiController) AddUserkeys() {
 	}
 
 	isAdmin := c.IsAdmin()
-	affected, err := object.AddUserkeys(&user, isAdmin)
+	affected, err := object.AddUserKeys(&user, isAdmin)
 	if err != nil {
 		c.ResponseError(err.Error())
 		return

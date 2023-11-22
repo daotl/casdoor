@@ -38,7 +38,11 @@ func getEnabledSyncerForOrganization(organization string) (*Syncer, error) {
 
 	for _, syncer := range syncers {
 		if syncer.Organization == organization && syncer.IsEnabled {
-			syncer.initAdapter()
+			err = syncer.initAdapter()
+			if err != nil {
+				return nil, err
+			}
+
 			return syncer, nil
 		}
 	}
@@ -52,6 +56,10 @@ func AddUserToOriginalDatabase(user *User) error {
 	}
 
 	if syncer == nil {
+		return nil
+	}
+
+	if syncer.IsReadOnly {
 		return nil
 	}
 
@@ -71,6 +79,10 @@ func UpdateUserToOriginalDatabase(user *User) error {
 		return err
 	}
 	if syncer == nil {
+		return nil
+	}
+
+	if syncer.IsReadOnly {
 		return nil
 	}
 

@@ -81,6 +81,7 @@ p, *, *, GET, /api/get-saml-login, *, *
 p, *, *, POST, /api/acs, *, *
 p, *, *, GET, /api/saml/metadata, *, *
 p, *, *, *, /cas, *, *
+p, *, *, *, /scim, *, *
 p, *, *, *, /api/webauthn, *, *
 p, *, *, GET, /api/get-release, *, *
 p, *, *, GET, /api/get-default-application, *, *
@@ -95,7 +96,7 @@ p, *, *, GET, /api/get-organization-names, *, *
 
 		sa := stringadapter.NewAdapter(ruleText)
 		// load all rules from string adapter to enforcer's memory
-		err := sa.LoadPolicy(Enforcer.GetModel())
+		err = sa.LoadPolicy(Enforcer.GetModel())
 		if err != nil {
 			panic(err)
 		}
@@ -126,8 +127,14 @@ func IsAllowed(subOwner string, subName string, method string, urlPath string, o
 		return true
 	}
 
-	if user != nil && user.IsAdmin && (subOwner == objOwner || (objOwner == "admin")) {
-		return true
+	if user != nil {
+		if user.IsDeleted {
+			return false
+		}
+
+		if user.IsAdmin && (subOwner == objOwner || (objOwner == "admin")) {
+			return true
+		}
 	}
 
 	res, err := Enforcer.Enforce(subOwner, subName, method, urlPath, objOwner, objName)
@@ -140,7 +147,7 @@ func IsAllowed(subOwner string, subName string, method string, urlPath string, o
 
 func isAllowedInDemoMode(subOwner string, subName string, method string, urlPath string, objOwner string, objName string) bool {
 	if method == "POST" {
-		if strings.HasPrefix(urlPath, "/api/login") || urlPath == "/api/logout" || urlPath == "/api/signup" || urlPath == "/api/send-verification-code" || urlPath == "/api/send-email" || urlPath == "/api/verify-captcha" {
+		if strings.HasPrefix(urlPath, "/api/login") || urlPath == "/api/logout" || urlPath == "/api/signup" || urlPath == "/api/callback" || urlPath == "/api/send-verification-code" || urlPath == "/api/send-email" || urlPath == "/api/verify-captcha" {
 			return true
 		} else if urlPath == "/api/update-user" {
 			// Allow ordinary users to update their own information

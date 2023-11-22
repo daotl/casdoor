@@ -44,7 +44,7 @@ class PermissionListPage extends BaseListPage {
       submitter: this.props.account.name,
       approver: "",
       approveTime: "",
-      state: "Pending",
+      state: Setting.isLocalAdminUser(this.props.account) ? "Approved" : "Pending",
     };
   }
 
@@ -298,6 +298,13 @@ class PermissionListPage extends BaseListPage {
         filterMultiple: false,
         width: "120px",
         sorter: true,
+        render: (text, record, index) => {
+          return (
+            <Link to={`/users/${record.owner}/${encodeURIComponent(text)}`}>
+              {text}
+            </Link>
+          );
+        },
       },
       {
         title: i18next.t("permission:Approver"),
@@ -306,6 +313,13 @@ class PermissionListPage extends BaseListPage {
         filterMultiple: false,
         width: "120px",
         sorter: true,
+        render: (text, record, index) => {
+          return (
+            <Link to={`/users/${record.owner}/${encodeURIComponent(text)}`}>
+              {text}
+            </Link>
+          );
+        },
       },
       {
         title: i18next.t("permission:Approve time"),

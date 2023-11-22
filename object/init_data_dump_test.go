@@ -1,4 +1,4 @@
-// Copyright 2021 The Casdoor Authors. All Rights Reserved.
+// Copyright 2023 The Casdoor Authors. All Rights Reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,26 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !skipCi
+// +build !skipCi
+
 package object
 
-func (syncer *Syncer) getUsers() []*User {
-	users, err := GetUsers(syncer.Organization)
+import "testing"
+
+func TestDumpToFile(t *testing.T) {
+	InitConfig()
+
+	err := DumpToFile("./init_data_dump.json")
 	if err != nil {
 		panic(err)
 	}
-
-	return users
-}
-
-func (syncer *Syncer) getUserMap() ([]*User, map[string]*User, map[string]*User) {
-	users := syncer.getUsers()
-
-	m1 := map[string]*User{}
-	m2 := map[string]*User{}
-	for _, user := range users {
-		m1[user.Id] = user
-		m2[user.Name] = user
-	}
-
-	return users, m1, m2
 }

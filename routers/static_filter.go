@@ -26,6 +26,7 @@ import (
 
 	"github.com/beego/beego/context"
 	"github.com/casdoor/casdoor/conf"
+	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/util"
 )
 
@@ -33,7 +34,62 @@ var (
 	oldStaticBaseUrl = "https://cdn.casbin.org"
 	newStaticBaseUrl = conf.GetConfigString("staticBaseUrl")
 	enableGzip       = conf.GetConfigBool("enableGzip")
+	frontendBaseDir  = conf.GetConfigString("frontendBaseDir")
 )
+
+func getWebBuildFolder() string {
+	path := "web/build"
+	if util.FileExist(filepath.Join(path, "index.html")) || frontendBaseDir == "" {
+		return path
+	}
+
+	path = filepath.Join(frontendBaseDir, "web/build")
+	return path
+}
+
+func fastAutoSignin(ctx *context.Context) (string, error) {
+	userId := getSessionUser(ctx)
+	if userId == "" {
+		return "", nil
+	}
+
+	clientId := ctx.Input.Query("client_id")
+	responseType := ctx.Input.Query("response_type")
+	redirectUri := ctx.Input.Query("redirect_uri")
+	scope := ctx.Input.Query("scope")
+	state := ctx.Input.Query("state")
+	nonce := ""
+	codeChallenge := ""
+	if clientId == "" || responseType != "code" || redirectUri == "" {
+		return "", nil
+	}
+
+	application, err := object.GetApplicationByClientId(clientId)
+	if err != nil {
+		return "", err
+	}
+	if application == nil {
+		return "", nil
+	}
+
+	if !application.EnableAutoSignin {
+		return "", nil
+	}
+
+	code, err := object.GetOAuthCode(userId, clientId, responseType, redirectUri, scope, state, nonce, codeChallenge, ctx.Request.Host, getAcceptLanguage(ctx))
+	if err != nil {
+		return "", err
+	} else if code.Message != "" {
+		return "", fmt.Errorf(code.Message)
+	}
+
+	sep := "?"
+	if strings.Contains(redirectUri, "?") {
+		sep = "&"
+	}
+	res := fmt.Sprintf("%s%scode=%s&state=%s", redirectUri, sep, code.Code, state)
+	return res, nil
+}
 
 func StaticFilter(ctx *context.Context) {
 	urlPath := ctx.Request.URL.Path
@@ -48,8 +104,25 @@ func StaticFilter(ctx *context.Context) {
 	if strings.HasPrefix(urlPath, "/cas") && (strings.HasSuffix(urlPath, "/serviceValidate") || strings.HasSuffix(urlPath, "/proxy") || strings.HasSuffix(urlPath, "/proxyValidate") || strings.HasSuffix(urlPath, "/validate") || strings.HasSuffix(urlPath, "/p3/serviceValidate") || strings.HasSuffix(urlPath, "/p3/proxyValidate") || strings.HasSuffix(urlPath, "/samlValidate")) {
 		return
 	}
+	if strings.HasPrefix(urlPath, "/scim") {
+		return
+	}
 
-	path := "web/build"
+	if urlPath == "/login/oauth/authorize" {
+		redirectUrl, err := fastAutoSignin(ctx)
+		if err != nil {
+			responseError(ctx, err.Error())
+			return
+		}
+
+		if redirectUrl != "" {
+			http.Redirect(ctx.ResponseWriter, ctx.Request, redirectUrl, http.StatusFound)
+			return
+		}
+	}
+
+	webBuildFolder := getWebBuildFolder()
+	path := webBuildFolder
 	if urlPath == "/" {
 		path += "/index.html"
 	} else {
@@ -57,7 +130,7 @@ func StaticFilter(ctx *context.Context) {
 	}
 
 	if !util.FileExist(path) {
-		path = "web/build/index.html"
+		path = webBuildFolder + "/index.html"
 	}
 	if !util.FileExist(path) {
 		dir, err := os.Getwd()
@@ -65,6 +138,7 @@ func StaticFilter(ctx *context.Context) {
 			panic(err)
 		}
 		dir = strings.ReplaceAll(dir, "\\", "/")
+		ctx.ResponseWriter.WriteHeader(http.StatusNotFound)
 		errorText := fmt.Sprintf("The Casdoor frontend HTML file: \"index.html\" was not found, it should be placed at: \"%s/web/build/index.html\". For more information, see: https://casdoor.org/docs/basic/server-installation/#frontend-1", dir)
 		http.ServeContent(ctx.ResponseWriter, ctx.Request, "Casdoor frontend has encountered error...", time.Now(), strings.NewReader(errorText))
 		return

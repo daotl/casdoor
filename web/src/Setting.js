@@ -209,6 +209,10 @@ export const OtherProviderInfo = {
       logo: `${StaticBaseUrl}/img/social_keycloak.png`,
       url: "https://www.keycloak.org/",
     },
+    "Custom": {
+      logo: `${StaticBaseUrl}/img/social_custom.png`,
+      url: "https://door.casdoor.com/",
+    },
   },
   Payment: {
     "Dummy": {
@@ -749,7 +753,7 @@ export function isMobile() {
 }
 
 export function getFormattedDate(date) {
-  if (date === undefined) {
+  if (!date) {
     return null;
   }
 
@@ -866,10 +870,10 @@ export function getClickable(text) {
 }
 
 export function getProviderLogoURL(provider) {
+  if (provider.type === "Custom" && provider.customLogo) {
+    return provider.customLogo;
+  }
   if (provider.category === "OAuth") {
-    if (provider.type === "Custom" && provider.customLogo) {
-      return provider.customLogo;
-    }
     return `${StaticBaseUrl}/img/social_${provider.type.toLowerCase()}.png`;
   } else {
     const info = OtherProviderInfo[provider.category][provider.type];
@@ -1014,6 +1018,7 @@ export function getProviderTypeOptions(category) {
     return ([
       {id: "Aliyun IDaaS", name: "Aliyun IDaaS"},
       {id: "Keycloak", name: "Keycloak"},
+      {id: "Custom", name: "Custom"},
     ]);
   } else if (category === "Payment") {
     return ([
@@ -1059,6 +1064,38 @@ export function getProviderTypeOptions(category) {
       {id: "Rocket Chat", name: "Rocket Chat"},
       {id: "Viber", name: "Viber"},
     ]);
+  } else {
+    return [];
+  }
+}
+
+export function getCryptoAlgorithmOptions(cryptoAlgorithm) {
+  if (cryptoAlgorithm === "RS256") {
+    return (
+      [
+        {id: 1024, name: "1024"},
+        {id: 2048, name: "2048"},
+        {id: 4096, name: "4096"},
+      ]
+    );
+  } else if (cryptoAlgorithm === "HS256" || cryptoAlgorithm === "ES256") {
+    return (
+      [
+        {id: 256, name: "256"},
+      ]
+    );
+  } else if (cryptoAlgorithm === "ES384") {
+    return (
+      [
+        {id: 384, name: "384"},
+      ]
+    );
+  } else if (cryptoAlgorithm === "ES521") {
+    return (
+      [
+        {id: 521, name: "521"},
+      ]
+    );
   } else {
     return [];
   }

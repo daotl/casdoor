@@ -35,14 +35,14 @@ type Object struct {
 func getUsername(ctx *context.Context) (username string) {
 	defer func() {
 		if r := recover(); r != nil {
-			username = getUsernameByClientIdSecret(ctx)
+			username, _ = getUsernameByClientIdSecret(ctx)
 		}
 	}()
 
 	username = ctx.Input.Session("username").(string)
 
 	if username == "" {
-		username = getUsernameByClientIdSecret(ctx)
+		username, _ = getUsernameByClientIdSecret(ctx)
 	}
 
 	if username == "" {
@@ -66,6 +66,13 @@ func getObject(ctx *context.Context) (string, string) {
 	path := ctx.Request.URL.Path
 
 	if method == http.MethodGet {
+		if ctx.Request.URL.Path == "/api/get-policies" && ctx.Input.Query("id") == "/" {
+			adapterId := ctx.Input.Query("adapterId")
+			if adapterId != "" {
+				return util.GetOwnerAndNameFromIdNoCheck(adapterId)
+			}
+		}
+
 		// query == "?id=built-in/admin"
 		id := ctx.Input.Query("id")
 		if id != "" {
@@ -79,8 +86,14 @@ func getObject(ctx *context.Context) (string, string) {
 
 		return "", ""
 	} else {
-		body := ctx.Input.RequestBody
+		if path == "/api/add-policy" || path == "/api/remove-policy" || path == "/api/update-policy" {
+			id := ctx.Input.Query("id")
+			if id != "" {
+				return util.GetOwnerAndNameFromIdNoCheck(id)
+			}
+		}
 
+		body := ctx.Input.RequestBody
 		if len(body) == 0 {
 			return ctx.Request.Form.Get("owner"), ctx.Request.Form.Get("name")
 		}
@@ -137,6 +150,10 @@ func willLog(subOwner string, subName string, method string, urlPath string, obj
 func getUrlPath(urlPath string) string {
 	if strings.HasPrefix(urlPath, "/cas") && (strings.HasSuffix(urlPath, "/serviceValidate") || strings.HasSuffix(urlPath, "/proxy") || strings.HasSuffix(urlPath, "/proxyValidate") || strings.HasSuffix(urlPath, "/validate") || strings.HasSuffix(urlPath, "/p3/serviceValidate") || strings.HasSuffix(urlPath, "/p3/proxyValidate") || strings.HasSuffix(urlPath, "/samlValidate")) {
 		return "/cas"
+	}
+
+	if strings.HasPrefix(urlPath, "/scim") {
+		return "/scim"
 	}
 
 	if strings.HasPrefix(urlPath, "/api/login/oauth") {

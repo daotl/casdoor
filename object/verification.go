@@ -80,13 +80,14 @@ func IsAllowSend(user *User, remoteAddr, recordType string) error {
 }
 
 func SendVerificationCodeToEmail(organization *Organization, user *User, provider *Provider, remoteAddr string, dest string) error {
-	if provider == nil {
-		return fmt.Errorf("please set an Email provider first")
-	}
-
 	sender := organization.DisplayName
 	title := provider.Title
+
 	code := getRandomCode(6)
+	if organization.MasterVerificationCode != "" {
+		code = organization.MasterVerificationCode
+	}
+
 	// "You have requested a verification code at Casdoor. Here is your code: %s, please enter in 5 minutes."
 	content := fmt.Sprintf(provider.Content, code)
 
@@ -106,15 +107,15 @@ func SendVerificationCodeToEmail(organization *Organization, user *User, provide
 }
 
 func SendVerificationCodeToPhone(organization *Organization, user *User, provider *Provider, remoteAddr string, dest string) error {
-	if provider == nil {
-		return errors.New("please set a SMS provider first")
-	}
-
 	if err := IsAllowSend(user, remoteAddr, provider.Category); err != nil {
 		return err
 	}
 
 	code := getRandomCode(6)
+	if organization.MasterVerificationCode != "" {
+		code = organization.MasterVerificationCode
+	}
+
 	if err := SendSms(provider, code, dest); err != nil {
 		return err
 	}
@@ -164,7 +165,7 @@ func getVerificationRecord(dest string) (*VerificationRecord, error) {
 	return &record, nil
 }
 
-func CheckVerificationCode(dest, code, lang string) *VerifyResult {
+func CheckVerificationCode(dest string, code string, lang string) *VerifyResult {
 	record, err := getVerificationRecord(dest)
 	if err != nil {
 		panic(err)
@@ -191,32 +192,32 @@ func CheckVerificationCode(dest, code, lang string) *VerifyResult {
 	return &VerifyResult{VerificationSuccess, ""}
 }
 
-func DisableVerificationCode(dest string) (err error) {
+func DisableVerificationCode(dest string) error {
 	record, err := getVerificationRecord(dest)
 	if record == nil || err != nil {
-		return
+		return nil
 	}
 
 	record.IsUsed = true
 	_, err = ormer.Engine.ID(core.PK{record.Owner, record.Name}).AllCols().Update(record)
-	return
+	return err
 }
 
-func CheckSigninCode(user *User, dest, code, lang string) string {
+func CheckSigninCode(user *User, dest, code, lang string) error {
 	// check the login error times
-	if msg := checkSigninErrorTimes(user, lang); msg != "" {
-		return msg
+	err := checkSigninErrorTimes(user, lang)
+	if err != nil {
+		return err
 	}
 
 	result := CheckVerificationCode(dest, code, lang)
 	switch result.Code {
 	case VerificationSuccess:
-		resetUserSigninErrorTimes(user)
-		return ""
+		return resetUserSigninErrorTimes(user)
 	case wrongCodeError:
 		return recordSigninErrorInfo(user, lang)
 	default:
-		return result.Msg
+		return fmt.Errorf(result.Msg)
 	}
 }
 

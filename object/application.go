@@ -25,11 +25,19 @@ import (
 )
 
 type SignupItem struct {
-	Name     string `json:"name"`
-	Visible  bool   `json:"visible"`
-	Required bool   `json:"required"`
-	Prompted bool   `json:"prompted"`
-	Rule     string `json:"rule"`
+	Name        string `json:"name"`
+	Visible     bool   `json:"visible"`
+	Required    bool   `json:"required"`
+	Prompted    bool   `json:"prompted"`
+	Label       string `json:"label"`
+	Placeholder string `json:"placeholder"`
+	Rule        string `json:"rule"`
+}
+
+type SamlItem struct {
+	Name       string `json:"name"`
+	NameFormat string `json:"nameformat"`
+	Value      string `json:"value"`
 }
 
 type Application struct {
@@ -49,17 +57,19 @@ type Application struct {
 	EnableAutoSignin    bool            `json:"enableAutoSignin"`
 	EnableCodeSignin    bool            `json:"enableCodeSignin"`
 	EnableSamlCompress  bool            `json:"enableSamlCompress"`
+	EnableSamlC14n10    bool            `json:"enableSamlC14n10"`
 	EnableWebAuthn      bool            `json:"enableWebAuthn"`
 	EnableLinkWithEmail bool            `json:"enableLinkWithEmail"`
 	OrgChoiceMode       string          `json:"orgChoiceMode"`
 	SamlReplyUrl        string          `xorm:"varchar(100)" json:"samlReplyUrl"`
 	Providers           []*ProviderItem `xorm:"mediumtext" json:"providers"`
-	SignupItems         []*SignupItem   `xorm:"varchar(1000)" json:"signupItems"`
+	SignupItems         []*SignupItem   `xorm:"varchar(2000)" json:"signupItems"`
 	GrantTypes          []string        `xorm:"varchar(1000)" json:"grantTypes"`
 	OrganizationObj     *Organization   `xorm:"-" json:"organizationObj"`
 	CertPublicKey       string          `xorm:"-" json:"certPublicKey"`
 	Tags                []string        `xorm:"mediumtext" json:"tags"`
 	InvitationCodes     []string        `xorm:"varchar(200)" json:"invitationCodes"`
+	SamlAttributes      []*SamlItem     `xorm:"varchar(1000)" json:"samlAttributes"`
 
 	ClientId             string     `xorm:"varchar(100)" json:"clientId"`
 	ClientSecret         string     `xorm:"varchar(100)" json:"clientSecret"`
@@ -306,6 +316,12 @@ func GetMaskedApplication(application *Application, userId string) *Application 
 		if application.OrganizationObj.MasterPassword != "" {
 			application.OrganizationObj.MasterPassword = "***"
 		}
+		if application.OrganizationObj.DefaultPassword != "" {
+			application.OrganizationObj.DefaultPassword = "***"
+		}
+		if application.OrganizationObj.MasterVerificationCode != "" {
+			application.OrganizationObj.MasterVerificationCode = "***"
+		}
 		if application.OrganizationObj.PasswordType != "" {
 			application.OrganizationObj.PasswordType = "***"
 		}
@@ -330,6 +346,34 @@ func GetMaskedApplications(applications []*Application, userId string) []*Applic
 		application = GetMaskedApplication(application, userId)
 	}
 	return applications
+}
+
+func GetAllowedApplications(applications []*Application, userId string) ([]*Application, error) {
+	if userId == "" || isUserIdGlobalAdmin(userId) {
+		return applications, nil
+	}
+
+	user, err := GetUser(userId)
+	if err != nil {
+		return nil, err
+	}
+	if user != nil && user.IsAdmin {
+		return applications, nil
+	}
+
+	res := []*Application{}
+	for _, application := range applications {
+		var allowed bool
+		allowed, err = CheckLoginPermission(userId, application)
+		if err != nil {
+			return nil, err
+		}
+
+		if allowed {
+			res = append(res, application)
+		}
+	}
+	return res, nil
 }
 
 func UpdateApplication(id string, application *Application) (bool, error) {
@@ -428,7 +472,7 @@ func (application *Application) GetId() string {
 }
 
 func (application *Application) IsRedirectUriValid(redirectUri string) bool {
-	redirectUris := append([]string{"http://localhost:"}, application.RedirectUris...)
+	redirectUris := append([]string{"http://localhost:", "https://localhost:", "http://127.0.0.1:", "http://casdoor-app"}, application.RedirectUris...)
 	for _, targetUri := range redirectUris {
 		targetUriRegex := regexp.MustCompile(targetUri)
 		if targetUriRegex.MatchString(redirectUri) || strings.Contains(redirectUri, targetUri) {

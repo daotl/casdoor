@@ -16,6 +16,7 @@ package object
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/casdoor/casdoor/conf"
@@ -49,6 +50,7 @@ type User struct {
 	UpdatedTime string `xorm:"varchar(100)" json:"updatedTime"`
 
 	Id                string   `xorm:"varchar(100) index" json:"id"`
+	ExternalId        string   `xorm:"varchar(100) index" json:"externalId"`
 	Type              string   `xorm:"varchar(100)" json:"type"`
 	Password          string   `xorm:"varchar(100)" json:"password"`
 	PasswordSalt      string   `xorm:"varchar(100)" json:"passwordSalt"`
@@ -370,6 +372,24 @@ func GetUserByEmail(owner string, email string) (*User, error) {
 	}
 }
 
+func GetUserByEmailOnly(email string) (*User, error) {
+	if email == "" {
+		return nil, nil
+	}
+
+	user := User{Email: email}
+	existed, err := ormer.Engine.Get(&user)
+	if err != nil {
+		return nil, err
+	}
+
+	if existed {
+		return &user, nil
+	} else {
+		return nil, nil
+	}
+}
+
 func GetUserByPhone(owner string, phone string) (*User, error) {
 	if owner == "" || phone == "" {
 		return nil, nil
@@ -388,12 +408,48 @@ func GetUserByPhone(owner string, phone string) (*User, error) {
 	}
 }
 
+func GetUserByPhoneOnly(phone string) (*User, error) {
+	if phone == "" {
+		return nil, nil
+	}
+
+	user := User{Phone: phone}
+	existed, err := ormer.Engine.Get(&user)
+	if err != nil {
+		return nil, err
+	}
+
+	if existed {
+		return &user, nil
+	} else {
+		return nil, nil
+	}
+}
+
 func GetUserByUserId(owner string, userId string) (*User, error) {
 	if owner == "" || userId == "" {
 		return nil, nil
 	}
 
 	user := User{Owner: owner, Id: userId}
+	existed, err := ormer.Engine.Get(&user)
+	if err != nil {
+		return nil, err
+	}
+
+	if existed {
+		return &user, nil
+	} else {
+		return nil, nil
+	}
+}
+
+func GetUserByUserIdOnly(userId string) (*User, error) {
+	if userId == "" {
+		return nil, nil
+	}
+
+	user := User{Id: userId}
 	existed, err := ormer.Engine.Get(&user)
 	if err != nil {
 		return nil, err
@@ -483,7 +539,7 @@ func GetMaskedUsers(users []*User, errs ...error) ([]*User, error) {
 	return users, nil
 }
 
-func GetLastUser(owner string) (*User, error) {
+func getLastUser(owner string) (*User, error) {
 	user := User{Owner: owner}
 	existed, err := ormer.Engine.Desc("created_time", "id").Get(&user)
 	if err != nil {
@@ -505,7 +561,7 @@ func UpdateUser(id string, user *User, columns []string, isAdmin bool) (bool, er
 		return false, err
 	}
 	if oldUser == nil {
-		return false, nil
+		return false, fmt.Errorf("the user: %s is not found", id)
 	}
 
 	if name != user.Name {
@@ -528,7 +584,7 @@ func UpdateUser(id string, user *User, columns []string, isAdmin bool) (bool, er
 
 	if len(columns) == 0 {
 		columns = []string{
-			"owner", "display_name", "avatar",
+			"owner", "display_name", "avatar", "first_name", "last_name",
 			"location", "address", "country_code", "region", "language", "affiliation", "title", "homepage", "bio", "tag", "language", "gender", "birthday", "education", "score", "karma", "ranking", "signup_application",
 			"is_admin", "is_forbidden", "is_deleted", "hash", "is_default_avatar", "properties", "webauthnCredentials", "managedAccounts",
 			"signin_wrong_times", "last_signin_wrong_time", "groups", "access_key", "access_secret",
@@ -544,6 +600,9 @@ func UpdateUser(id string, user *User, columns []string, isAdmin bool) (bool, er
 	if isAdmin {
 		columns = append(columns, "name", "email", "phone", "country_code", "type")
 	}
+
+	columns = append(columns, "updated_time")
+	user.UpdatedTime = util.GetCurrentTime()
 
 	if util.ContainsString(columns, "groups") {
 		_, err := userEnforcer.UpdateGroupsForUser(user.GetId(), user.Groups)
@@ -583,7 +642,7 @@ func UpdateUserForAllFields(id string, user *User) (bool, error) {
 	}
 
 	if oldUser == nil {
-		return false, nil
+		return false, fmt.Errorf("the user: %s is not found", id)
 	}
 
 	if name != user.Name {
@@ -605,6 +664,8 @@ func UpdateUserForAllFields(id string, user *User) (bool, error) {
 		}
 	}
 
+	user.UpdatedTime = util.GetCurrentTime()
+
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(user)
 	if err != nil {
 		return false, err
@@ -614,18 +675,34 @@ func UpdateUserForAllFields(id string, user *User) (bool, error) {
 }
 
 func AddUser(user *User) (bool, error) {
-	var err error
 	if user.Id == "" {
-		user.Id = util.GenerateId()
+		application, err := GetApplicationByUser(user)
+		if err != nil {
+			return false, err
+		}
+
+		id, err := GenerateIdForNewUser(application)
+		if err != nil {
+			return false, err
+		}
+
+		user.Id = id
 	}
 
 	if user.Owner == "" || user.Name == "" {
-		return false, nil
+		return false, fmt.Errorf("the user's owner and name should not be empty")
 	}
 
-	organization, _ := GetOrganizationByUser(user)
+	organization, err := GetOrganizationByUser(user)
+	if err != nil {
+		return false, err
+	}
 	if organization == nil {
-		return false, nil
+		return false, fmt.Errorf("the organization: %s is not found", user.Owner)
+	}
+
+	if organization.DefaultPassword != "" && user.Password == "123" {
+		user.Password = organization.DefaultPassword
 	}
 
 	if user.PasswordType == "" || user.PasswordType == "plain" {
@@ -666,9 +743,8 @@ func AddUser(user *User) (bool, error) {
 }
 
 func AddUsers(users []*User) (bool, error) {
-	var err error
 	if len(users) == 0 {
-		return false, nil
+		return false, fmt.Errorf("no users are provided")
 	}
 
 	// organization := GetOrganizationByUser(users[0])
@@ -676,7 +752,7 @@ func AddUsers(users []*User) (bool, error) {
 		// this function is only used for syncer or batch upload, so no need to encrypt the password
 		// user.UpdateUserPassword(organization)
 
-		err = user.UpdateUserHash()
+		err := user.UpdateUserHash()
 		if err != nil {
 			return false, err
 		}
@@ -700,23 +776,22 @@ func AddUsers(users []*User) (bool, error) {
 }
 
 func AddUsersInBatch(users []*User) (bool, error) {
-	batchSize := conf.GetConfigBatchSize()
-
 	if len(users) == 0 {
-		return false, nil
+		return false, fmt.Errorf("no users are provided")
 	}
 
+	batchSize := conf.GetConfigBatchSize()
+
 	affected := false
-	for i := 0; i < (len(users)-1)/batchSize+1; i++ {
-		start := i * batchSize
-		end := (i + 1) * batchSize
+	for i := 0; i < len(users); i += batchSize {
+		start := i
+		end := i + batchSize
 		if end > len(users) {
 			end = len(users)
 		}
 
 		tmp := users[start:end]
-		// TODO: save to log instead of standard output
-		// fmt.Printf("Add users: [%d - %d].\n", start, end)
+		fmt.Printf("The syncer adds users: [%d - %d]\n", start, end)
 		if ok, err := AddUsers(tmp); err != nil {
 			return false, err
 		} else if ok {
@@ -778,7 +853,7 @@ func (user *User) GetId() string {
 }
 
 func isUserIdGlobalAdmin(userId string) bool {
-	return strings.HasPrefix(userId, "built-in/")
+	return strings.HasPrefix(userId, "built-in/") || strings.HasPrefix(userId, "app/")
 }
 
 func ExtendUserWithRolesAndPermissions(user *User) (err error) {
@@ -786,7 +861,7 @@ func ExtendUserWithRolesAndPermissions(user *User) (err error) {
 		return
 	}
 
-	user.Permissions, user.Roles, err = GetPermissionsAndRolesByUser(user.GetId())
+	user.Permissions, user.Roles, err = getPermissionsAndRolesByUser(user.GetId())
 	if err != nil {
 		return err
 	}
@@ -874,9 +949,9 @@ func (user *User) GetPreferredMfaProps(masked bool) *MfaProps {
 	return user.GetMfaProps(user.PreferredMfaType, masked)
 }
 
-func AddUserkeys(user *User, isAdmin bool) (bool, error) {
+func AddUserKeys(user *User, isAdmin bool) (bool, error) {
 	if user == nil {
-		return false, nil
+		return false, fmt.Errorf("the user is not found")
 	}
 
 	user.AccessKey = util.GenerateId()
@@ -899,4 +974,23 @@ func (user *User) IsGlobalAdmin() bool {
 	}
 
 	return user.Owner == "built-in"
+}
+
+func GenerateIdForNewUser(application *Application) (string, error) {
+	if application == nil || application.GetSignupItemRule("ID") != "Incremental" {
+		return util.GenerateId(), nil
+	}
+
+	lastUser, err := getLastUser(application.Organization)
+	if err != nil {
+		return "", err
+	}
+
+	lastUserId := -1
+	if lastUser != nil {
+		lastUserId = util.ParseInt(lastUser.Id)
+	}
+
+	res := strconv.Itoa(lastUserId + 1)
+	return res, nil
 }

@@ -15,6 +15,7 @@
 package object
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/casdoor/casdoor/conf"
@@ -46,17 +47,6 @@ type Permission struct {
 	Approver    string `xorm:"varchar(100)" json:"approver"`
 	ApproveTime string `xorm:"varchar(100)" json:"approveTime"`
 	State       string `xorm:"varchar(100)" json:"state"`
-}
-
-type PermissionRule struct {
-	Ptype string `xorm:"varchar(100) index not null default ''" json:"ptype"`
-	V0    string `xorm:"varchar(100) index not null default ''" json:"v0"`
-	V1    string `xorm:"varchar(100) index not null default ''" json:"v1"`
-	V2    string `xorm:"varchar(100) index not null default ''" json:"v2"`
-	V3    string `xorm:"varchar(100) index not null default ''" json:"v3"`
-	V4    string `xorm:"varchar(100) index not null default ''" json:"v4"`
-	V5    string `xorm:"varchar(100) index not null default ''" json:"v5"`
-	Id    string `xorm:"varchar(100) index not null default ''" json:"id"`
 }
 
 const builtInAvailableField = 5 // Casdoor built-in adapter, use V5 to filter permission, so has 5 available field
@@ -112,11 +102,15 @@ func GetPermission(id string) (*Permission, error) {
 
 // checkPermissionValid verifies if the permission is valid
 func checkPermissionValid(permission *Permission) error {
-	enforcer := getPermissionEnforcer(permission)
+	enforcer, err := getPermissionEnforcer(permission)
+	if err != nil {
+		return err
+	}
+
 	enforcer.EnableAutoSave(false)
 
 	policies := getPolicies(permission)
-	_, err := enforcer.AddPolicies(policies)
+	_, err = enforcer.AddPolicies(policies)
 	if err != nil {
 		return err
 	}
@@ -128,7 +122,7 @@ func checkPermissionValid(permission *Permission) error {
 
 	groupingPolicies := getGroupingPolicies(permission)
 	if len(groupingPolicies) > 0 {
-		_, err := enforcer.AddGroupingPolicies(groupingPolicies)
+		_, err = enforcer.AddGroupingPolicies(groupingPolicies)
 		if err != nil {
 			return err
 		}
@@ -149,14 +143,40 @@ func UpdatePermission(id string, permission *Permission) (bool, error) {
 		return false, nil
 	}
 
+	if permission.ResourceType == "Application" && permission.Model != "" {
+		model, err := GetModelEx(util.GetId(owner, permission.Model))
+		if err != nil {
+			return false, err
+		} else if model == nil {
+			return false, fmt.Errorf("the model: %s for permission: %s is not found", permission.Model, permission.GetId())
+		}
+
+		modelCfg, err := getModelCfg(model)
+		if err != nil {
+			return false, err
+		}
+
+		if len(strings.Split(modelCfg["p"], ",")) != 3 {
+			return false, fmt.Errorf("the model: %s for permission: %s is not valid, Casbin model's [policy_defination] section should have 3 elements", permission.Model, permission.GetId())
+		}
+	}
+
 	affected, err := ormer.Engine.ID(core.PK{owner, name}).AllCols().Update(permission)
 	if err != nil {
 		return false, err
 	}
 
 	if affected != 0 {
-		removeGroupingPolicies(oldPermission)
-		removePolicies(oldPermission)
+		err = removeGroupingPolicies(oldPermission)
+		if err != nil {
+			return false, err
+		}
+
+		err = removePolicies(oldPermission)
+		if err != nil {
+			return false, err
+		}
+
 		if oldPermission.Adapter != "" && oldPermission.Adapter != permission.Adapter {
 			isEmpty, _ := ormer.Engine.IsTableEmpty(oldPermission.Adapter)
 			if isEmpty {
@@ -166,8 +186,16 @@ func UpdatePermission(id string, permission *Permission) (bool, error) {
 				}
 			}
 		}
-		addGroupingPolicies(permission)
-		addPolicies(permission)
+
+		err = addGroupingPolicies(permission)
+		if err != nil {
+			return false, err
+		}
+
+		err = addPolicies(permission)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	return affected != 0, nil
@@ -180,59 +208,78 @@ func AddPermission(permission *Permission) (bool, error) {
 	}
 
 	if affected != 0 {
-		addGroupingPolicies(permission)
-		addPolicies(permission)
+		err = addGroupingPolicies(permission)
+		if err != nil {
+			return false, err
+		}
+
+		err = addPolicies(permission)
+		if err != nil {
+			return false, err
+		}
 	}
 
 	return affected != 0, nil
 }
 
-func AddPermissions(permissions []*Permission) bool {
+func AddPermissions(permissions []*Permission) (bool, error) {
 	if len(permissions) == 0 {
-		return false
+		return false, nil
 	}
 
 	affected, err := ormer.Engine.Insert(permissions)
 	if err != nil {
 		if !strings.Contains(err.Error(), "Duplicate entry") {
-			panic(err)
+			return false, err
 		}
 	}
 
 	for _, permission := range permissions {
 		// add using for loop
 		if affected != 0 {
-			addGroupingPolicies(permission)
-			addPolicies(permission)
+			err = addGroupingPolicies(permission)
+			if err != nil {
+				return false, err
+			}
+
+			err = addPolicies(permission)
+			if err != nil {
+				return false, err
+			}
 		}
 	}
-	return affected != 0
+	return affected != 0, nil
 }
 
-func AddPermissionsInBatch(permissions []*Permission) bool {
+func AddPermissionsInBatch(permissions []*Permission) (bool, error) {
 	batchSize := conf.GetConfigBatchSize()
 
 	if len(permissions) == 0 {
-		return false
+		return false, nil
 	}
 
 	affected := false
-	for i := 0; i < (len(permissions)-1)/batchSize+1; i++ {
-		start := i * batchSize
-		end := (i + 1) * batchSize
+	for i := 0; i < len(permissions); i += batchSize {
+		start := i
+		end := i + batchSize
 		if end > len(permissions) {
 			end = len(permissions)
 		}
 
 		tmp := permissions[start:end]
-		// TODO: save to log instead of standard output
-		// fmt.Printf("Add Permissions: [%d - %d].\n", start, end)
-		if AddPermissions(tmp) {
+		fmt.Printf("The syncer adds permissions: [%d - %d]\n", start, end)
+
+		b, err := AddPermissions(tmp)
+		if err != nil {
+			return false, err
+		}
+
+		if b {
 			affected = true
 		}
 	}
 
-	return affected
+	return affected, nil
 }
 
 func DeletePermission(permission *Permission) (bool, error) {
@@ -242,8 +289,16 @@ func DeletePermission(permission *Permission) (bool, error) {
 	}
 
 	if affected != 0 {
-		removeGroupingPolicies(permission)
-		removePolicies(permission)
+		err = removeGroupingPolicies(permission)
+		if err != nil {
+			return false, err
+		}
+
+		err = removePolicies(permission)
+		if err != nil {
+			return false, err
+		}
+
 		if permission.Adapter != "" && permission.Adapter != "permission_rule" {
 			isEmpty, _ := ormer.Engine.IsTableEmpty(permission.Adapter)
 			if isEmpty {
@@ -258,9 +313,59 @@ func DeletePermission(permission *Permission) (bool, error) {
 	return affected != 0, nil
 }
 
-func GetPermissionsAndRolesByUser(userId string) ([]*Permission, []*Role, error) {
+func getPermissionsByUser(userId string) ([]*Permission, error) {
 	permissions := []*Permission{}
 	err := ormer.Engine.Where("users like ?", "%"+userId+"\"%").Find(&permissions)
+	if err != nil {
+		return permissions, err
+	}
+
+	res := []*Permission{}
+	for _, permission := range permissions {
+		if util.InSlice(permission.Users, userId) {
+			res = append(res, permission)
+		}
+	}
+
+	return res, nil
+}
+
+func GetPermissionsByRole(roleId string) ([]*Permission, error) {
+	permissions := []*Permission{}
+	err := ormer.Engine.Where("roles like ?", "%"+roleId+"\"%").Find(&permissions)
+	if err != nil {
+		return permissions, err
+	}
+
+	res := []*Permission{}
+	for _, permission := range permissions {
+		if util.InSlice(permission.Roles, roleId) {
+			res = append(res, permission)
+		}
+	}
+
+	return res, nil
+}
+
+func GetPermissionsByResource(resourceId string) ([]*Permission, error) {
+	permissions := []*Permission{}
+	err := ormer.Engine.Where("resources like ?", "%"+resourceId+"\"%").Find(&permissions)
+	if err != nil {
+		return permissions, err
+	}
+
+	res := []*Permission{}
+	for _, permission := range permissions {
+		if util.InSlice(permission.Resources, resourceId) {
+			res = append(res, permission)
+		}
+	}
+
+	return res, nil
+}
+
+func getPermissionsAndRolesByUser(userId string) ([]*Permission, []*Role, error) {
+	permissions, err := getPermissionsByUser(userId)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -277,14 +382,13 @@ func GetPermissionsAndRolesByUser(userId string) ([]*Permission, []*Role, error)
 
 	permFromRoles := []*Permission{}
 
-	roles, err := GetRolesByUser(userId)
+	roles, err := getRolesByUser(userId)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	for _, role := range roles {
-		perms := []*Permission{}
-		err := ormer.Engine.Where("roles like ?", "%"+role.GetId()+"\"%").Find(&perms)
+		perms, err := GetPermissionsByRole(role.GetId())
 		if err != nil {
 			return nil, nil, err
 		}
@@ -300,26 +404,6 @@ func GetPermissionsAndRolesByUser(userId string) ([]*Permission, []*Role, error)
 	}
 
 	return permissions, roles, nil
-}
-
-func GetPermissionsByRole(roleId string) ([]*Permission, error) {
-	permissions := []*Permission{}
-	err := ormer.Engine.Where("roles like ?", "%"+roleId+"\"%").Find(&permissions)
-	if err != nil {
-		return permissions, err
-	}
-
-	return permissions, nil
-}
-
-func GetPermissionsByResource(resourceId string) ([]*Permission, error) {
-	permissions := []*Permission{}
-	err := ormer.Engine.Where("resources like ?", "%"+resourceId+"\"%").Find(&permissions)
-	if err != nil {
-		return permissions, err
-	}
-
-	return permissions, nil
 }
 
 func GetPermissionsBySubmitter(owner string, submitter string) ([]*Permission, error) {
@@ -377,11 +461,26 @@ func (p *Permission) GetId() string {
 }
 
 func (p *Permission) isUserHit(name string) bool {
-	targetOrg, _ := util.GetOwnerAndNameFromId(name)
+	targetOrg, targetName := util.GetOwnerAndNameFromId(name)
 	for _, user := range p.Users {
 		userOrg, userName := util.GetOwnerAndNameFromId(user)
-		if userOrg == targetOrg && userName == "*" {
+		if userOrg == targetOrg && (userName == "*" || userName == targetName) {
 			return true
+		}
+	}
+	return false
+}
+
+func (p *Permission) isRoleHit(userId string) bool {
+	targetRoles, err := getRolesByUser(userId)
+	if err != nil {
+		return false
+	}
+	for _, role := range p.Roles {
+		for _, targetRole := range targetRoles {
+			if targetRole.GetId() == role {
+				return true
+			}
 		}
 	}
 	return false
@@ -389,7 +488,7 @@ func (p *Permission) isUserHit(name string) bool {
 
 func (p *Permission) isResourceHit(name string) bool {
 	for _, resource := range p.Resources {
-		if name == resource {
+		if resource == "*" || resource == name {
 			return true
 		}
 	}

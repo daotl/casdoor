@@ -178,7 +178,7 @@ func initBuiltInApplication() {
 		EnablePassword: true,
 		EnableSignUp:   true,
 		Providers: []*ProviderItem{
-			{Name: "provider_captcha_default", CanSignUp: false, CanSignIn: false, CanUnlink: false, Prompted: false, AlertType: "None", Rule: "None", Provider: nil},
+			{Name: "provider_captcha_default", CanSignUp: false, CanSignIn: false, CanUnlink: false, Prompted: false, SignupGroup: "", Rule: "None", Provider: nil},
 		},
 		SignupItems: []*SignupItem{
 			{Name: "ID", Visible: false, Required: true, Prompted: false, Rule: "Random"},
@@ -396,15 +396,22 @@ func initBuiltInPermission() {
 		Name:         "permission-built-in",
 		CreatedTime:  util.GetCurrentTime(),
 		DisplayName:  "Built-in Permission",
+		Description:  "Built-in Permission",
 		Users:        []string{"built-in/*"},
+		Groups:       []string{},
 		Roles:        []string{},
 		Domains:      []string{},
 		Model:        "model-built-in",
+		Adapter:      "",
 		ResourceType: "Application",
 		Resources:    []string{"app-built-in"},
 		Actions:      []string{"Read", "Write", "Admin"},
 		Effect:       "Allow",
 		IsEnabled:    true,
+		Submitter:    "admin",
+		Approver:     "admin",
+		ApproveTime:  util.GetCurrentTime(),
+		State:        "Approved",
 	}
 	_, err = AddPermission(permission)
 	if err != nil {
@@ -423,14 +430,11 @@ func initBuiltInUserAdapter() {
 	}
 
 	adapter = &Adapter{
-		Owner:           "built-in",
-		Name:            "user-adapter-built-in",
-		CreatedTime:     util.GetCurrentTime(),
-		Type:            "Database",
-		DatabaseType:    conf.GetConfigString("driverName"),
-		TableNamePrefix: conf.GetConfigString("tableNamePrefix"),
-		Database:        conf.GetConfigString("dbName"),
-		Table:           "casbin_user_rule",
+		Owner:       "built-in",
+		Name:        "user-adapter-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		Table:       "casbin_user_rule",
+		UseSameDb:   true,
 	}
 	_, err = AddAdapter(adapter)
 	if err != nil {
@@ -449,14 +453,11 @@ func initBuiltInApiAdapter() {
 	}
 
 	adapter = &Adapter{
-		Owner:           "built-in",
-		Name:            "api-adapter-built-in",
-		CreatedTime:     util.GetCurrentTime(),
-		Type:            "Database",
-		DatabaseType:    conf.GetConfigString("driverName"),
-		TableNamePrefix: conf.GetConfigString("tableNamePrefix"),
-		Database:        conf.GetConfigString("dbName"),
-		Table:           "casbin_api_rule",
+		Owner:       "built-in",
+		Name:        "api-adapter-built-in",
+		CreatedTime: util.GetCurrentTime(),
+		Table:       "casbin_api_rule",
+		UseSameDb:   true,
 	}
 	_, err = AddAdapter(adapter)
 	if err != nil {

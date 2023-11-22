@@ -195,6 +195,9 @@ func GenerateCasToken(userId string, service string) (string, error) {
 
 	user, _ = GetMaskedUser(user, false)
 
+	user.WebauthnCredentials = nil
+	user.Properties = nil
+
 	authenticationSuccess := CasAuthenticationSuccess{
 		User: user.Name,
 		Attributes: &CasAttributes{
@@ -284,6 +287,10 @@ func GetValidationBySaml(samlRequest string, host string) (string, string, error
 	cert, err := getCertByApplication(application)
 	if err != nil {
 		return "", "", err
+	}
+
+	if cert.Certificate == "" {
+		return "", "", fmt.Errorf("the certificate field should not be empty for the cert: %v", cert)
 	}
 
 	block, _ := pem.Decode([]byte(cert.Certificate))

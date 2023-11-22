@@ -25,6 +25,7 @@ import (
 	"github.com/casdoor/casdoor/ldap"
 	"github.com/casdoor/casdoor/object"
 	"github.com/casdoor/casdoor/proxy"
+	"github.com/casdoor/casdoor/radius"
 	"github.com/casdoor/casdoor/routers"
 	"github.com/casdoor/casdoor/util"
 )
@@ -33,7 +34,6 @@ func main() {
 	object.InitFlag()
 	object.InitAdapter()
 	object.CreateTables()
-	object.DoMigration()
 
 	object.InitDb()
 	object.InitFromFile()
@@ -81,6 +81,7 @@ func main() {
 	logs.SetLogFuncCall(false)
 
 	go ldap.StartLdapServer()
+	go radius.StartRadiusServer()
 	go object.ClearThroughputPerSecond()
 
 	beego.Run(fmt.Sprintf(":%v", port))
