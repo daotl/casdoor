@@ -37,7 +37,7 @@ type Adapter struct {
 	Host         string `xorm:"varchar(100)" json:"host"`
 	Port         int    `json:"port"`
 	User         string `xorm:"varchar(100)" json:"user"`
-	Password     string `xorm:"varchar(100)" json:"password"`
+	Password     string `xorm:"varchar(150)" json:"password"`
 	Database     string `xorm:"varchar(100)" json:"database"`
 
 	*xormadapter.Adapter `xorm:"-" json:"-"`
@@ -178,6 +178,7 @@ func (adapter *Adapter) InitAdapter() error {
 		dataSourceName = strings.ReplaceAll(dataSourceName, "dbi.", "db.")
 	}
 
+	dataSourceName = conf.ReplaceDataSourceNameByDocker(dataSourceName)
 	engine, err := xorm.NewEngine(driverName, dataSourceName)
 	if err != nil {
 		return err
@@ -190,12 +191,7 @@ func (adapter *Adapter) InitAdapter() error {
 		}
 	}
 
-	var tableName string
-	if driverName == "mssql" {
-		tableName = fmt.Sprintf("[%s]", adapter.Table)
-	} else {
-		tableName = adapter.Table
-	}
+	tableName := adapter.Table
 
 	adapter.Adapter, err = xormadapter.NewAdapterByEngineWithTableName(engine, tableName, "")
 	if err != nil {

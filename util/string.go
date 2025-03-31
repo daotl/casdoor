@@ -45,6 +45,19 @@ func ParseInt(s string) int {
 	return i
 }
 
+func ParseIntWithError(s string) (int, error) {
+	if s == "" {
+		return 0, fmt.Errorf("ParseIntWithError() error, empty string")
+	}
+
+	i, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+
+	return i, nil
+}
+
 func ParseFloat(s string) float64 {
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
@@ -100,6 +113,15 @@ func SnakeToCamel(snake string) string {
 	return strings.Join(words, "")
 }
 
+func SpaceToCamel(name string) string {
+	words := strings.Split(name, " ")
+	for i := range words {
+		words[i] = strings.ToLower(words[i])
+		words[i] = strings.Title(words[i])
+	}
+	return strings.Join(words, "")
+}
+
 func GetOwnerAndNameFromId(id string) (string, string) {
 	tokens := strings.Split(id, "/")
 	if len(tokens) != 2 {
@@ -107,6 +129,15 @@ func GetOwnerAndNameFromId(id string) (string, string) {
 	}
 
 	return tokens[0], tokens[1]
+}
+
+func GetOwnerAndNameFromIdWithError(id string) (string, string, error) {
+	tokens := strings.Split(id, "/")
+	if len(tokens) != 2 {
+		return "", "", errors.New("GetOwnerAndNameFromId() error, wrong token count for ID: " + id)
+	}
+
+	return tokens[0], tokens[1], nil
 }
 
 func GetOwnerFromId(id string) string {
@@ -130,6 +161,16 @@ func GetOwnerAndNameAndOtherFromId(id string) (string, string, string) {
 	}
 
 	return tokens[0], tokens[1], tokens[2]
+}
+
+func GetSharedOrgFromApp(rawName string) (name string, organization string) {
+	name = rawName
+	splitName := strings.Split(rawName, "-org-")
+	if len(splitName) >= 2 {
+		organization = splitName[len(splitName)-1]
+		name = splitName[0]
+	}
+	return name, organization
 }
 
 func GenerateId() string {
@@ -242,6 +283,10 @@ func GetMaskedEmail(email string) string {
 		return ""
 	}
 
+	if !strings.Contains(email, "@") {
+		return maskString(email)
+	}
+
 	tokens := strings.Split(email, "@")
 	username := maskString(tokens[0])
 	domain := tokens[1]
@@ -308,4 +353,38 @@ func GetUsernameFromEmail(email string) string {
 	} else {
 		return tokens[0]
 	}
+}
+
+func StringToInterfaceArray(array []string) []interface{} {
+	var (
+		interfaceArray []interface{}
+		elem           interface{}
+	)
+	for _, elem = range array {
+		jStruct, err := TryJsonToAnonymousStruct(elem.(string))
+		if err == nil {
+			elem = jStruct
+		}
+		interfaceArray = append(interfaceArray, elem)
+	}
+	return interfaceArray
+}
+
+func StringToInterfaceArray2d(arrays [][]string) [][]interface{} {
+	var interfaceArrays [][]interface{}
+	for _, req := range arrays {
+		var (
+			interfaceArray []interface{}
+			elem           interface{}
+		)
+		for _, elem = range req {
+			jStruct, err := TryJsonToAnonymousStruct(elem.(string))
+			if err == nil {
+				elem = jStruct
+			}
+			interfaceArray = append(interfaceArray, elem)
+		}
+		interfaceArrays = append(interfaceArrays, interfaceArray)
+	}
+	return interfaceArrays
 }

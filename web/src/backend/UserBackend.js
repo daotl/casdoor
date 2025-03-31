@@ -147,17 +147,18 @@ export function sendCode(captchaType, captchaToken, clientSecret, method, countr
       Setting.showMessage("success", i18next.t("user:Verification code sent"));
       return true;
     } else {
-      Setting.showMessage("error", i18next.t("user:" + res.msg));
+      Setting.showMessage("error", res.msg);
       return false;
     }
   });
 }
 
-export function verifyCaptcha(captchaType, captchaToken, clientSecret) {
+export function verifyCaptcha(owner, name, captchaType, captchaToken, clientSecret) {
   const formData = new FormData();
   formData.append("captchaType", captchaType);
   formData.append("captchaToken", captchaToken);
   formData.append("clientSecret", clientSecret);
+  formData.append("applicationId", `${owner}/${name}`);
   return fetch(`${Setting.ServerUrl}/api/verify-captcha`, {
     method: "POST",
     credentials: "include",

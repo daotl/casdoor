@@ -1,4 +1,5 @@
 import React from "react";
+import * as Setting from "./Setting";
 
 export const TourObj = {
   home: [
@@ -8,7 +9,7 @@ export const TourObj = {
       cover: (
         <img
           alt="casdoor.png"
-          src="https://cdn.casbin.org/img/casdoor-logo_1185x256.png"
+          src={`${Setting.StaticBaseUrl}/img/casdoor-logo_1185x256.png`}
         />
       ),
     },
@@ -203,13 +204,24 @@ export function getNextUrl(pathName = window.location.pathname) {
   return TourUrlList[TourUrlList.indexOf(pathName.replace("/", "")) + 1] || "";
 }
 
+let orgIsTourVisible = true;
+
+export function setOrgIsTourVisible(visible) {
+  orgIsTourVisible = visible;
+}
+
 export function setIsTourVisible(visible) {
   localStorage.setItem("isTourVisible", visible);
-  window.dispatchEvent(new Event("storageTourChanged"));
+}
+
+export function setTourLogo(tourLogoSrc) {
+  if (tourLogoSrc !== "") {
+    TourObj["home"][0]["cover"] = (<img alt="casdoor.png" src={tourLogoSrc} />);
+  }
 }
 
 export function getTourVisible() {
-  return localStorage.getItem("isTourVisible") !== "false";
+  return localStorage.getItem("isTourVisible") !== "false" && orgIsTourVisible;
 }
 
 export function getNextButtonChild(nextPathName) {

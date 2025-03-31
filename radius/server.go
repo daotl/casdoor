@@ -17,15 +17,25 @@ package radius
 import (
 	"fmt"
 	"log"
+	"strings"
+	"time"
 
 	"github.com/casdoor/casdoor/conf"
 	"github.com/casdoor/casdoor/object"
+	"github.com/casdoor/casdoor/util"
 	"layeh.com/radius"
 	"layeh.com/radius/rfc2865"
 	"layeh.com/radius/rfc2866"
 )
 
-// https://support.huawei.com/enterprise/zh/doc/EDOC1000178159/35071f9a#tab_3
+var StateMap map[string]AccessStateContent
+
+const StateExpiredTime = time.Second * 120
+
+type AccessStateContent struct {
+	ExpiredAt time.Time
+}
+
 func StartRadiusServer() {
 	secret := conf.GetConfigString("radiusSecret")
 	server := radius.PacketServer{
@@ -54,17 +64,83 @@ func handleAccessRequest(w radius.ResponseWriter, r *radius.Request) {
 	username := rfc2865.UserName_GetString(r.Packet)
 	password := rfc2865.UserPassword_GetString(r.Packet)
 	organization := rfc2865.Class_GetString(r.Packet)
+	state := rfc2865.State_GetString(r.Packet)
 	log.Printf("handleAccessRequest() username=%v, org=%v, password=%v", username, organization, password)
 
 	if organization == "" {
+		organization = conf.GetConfigString("radiusDefaultOrganization")
+		if organization == "" {
+			organization = "built-in"
+		}
+	}
+
+	var user *object.User
+	var err error
+
+	if state == "" {
+		user, err = object.CheckUserPassword(organization, username, password, "en")
+	} else {
+		user, err = object.GetUser(fmt.Sprintf("%s/%s", organization, username))
+	}
+
+	if err != nil {
 		w.Write(r.Response(radius.CodeAccessReject))
 		return
 	}
 
-	_, err := object.CheckUserPassword(organization, username, password, "en")
-	if err != nil {
-		w.Write(r.Response(radius.CodeAccessReject))
-		return
+	if user.IsMfaEnabled() {
+		mfaProp := user.GetMfaProps(object.TotpType, false)
+		if mfaProp == nil {
+			w.Write(r.Response(radius.CodeAccessReject))
+			return
+		}
+
+		if StateMap == nil {
+			StateMap = map[string]AccessStateContent{}
+		}
+
+		if state != "" {
+			stateContent, ok := StateMap[state]
+			if !ok {
+				w.Write(r.Response(radius.CodeAccessReject))
+				return
+			}
+
+			delete(StateMap, state)
+			if stateContent.ExpiredAt.Before(time.Now()) {
+				w.Write(r.Response(radius.CodeAccessReject))
+				return
+			}
+
+			mfaUtil := object.GetMfaUtil(mfaProp.MfaType, mfaProp)
+			if mfaUtil.Verify(password) != nil {
+				w.Write(r.Response(radius.CodeAccessReject))
+				return
+			}
+
+			w.Write(r.Response(radius.CodeAccessAccept))
+			return
+		}
+
+		responseState := util.GenerateId()
+		StateMap[responseState] = AccessStateContent{
+			time.Now().Add(StateExpiredTime),
+		}
+
+		err = rfc2865.State_Set(r.Packet, []byte(responseState))
+		if err != nil {
+			w.Write(r.Response(radius.CodeAccessReject))
+			return
+		}
+
+		err = rfc2865.ReplyMessage_Set(r.Packet, []byte("please enter OTP"))
+		if err != nil {
+			w.Write(r.Response(radius.CodeAccessReject))
+			return
+		}
+
+		r.Packet.Code = radius.CodeAccessChallenge
+		w.Write(r.Packet)
 	}
 
 	w.Write(r.Response(radius.CodeAccessAccept))
@@ -74,6 +150,11 @@ func handleAccountingRequest(w radius.ResponseWriter, r *radius.Request) {
 	statusType := rfc2866.AcctStatusType_Get(r.Packet)
 	username := rfc2865.UserName_GetString(r.Packet)
 	organization := rfc2865.Class_GetString(r.Packet)
+
+	if strings.Contains(username, "/") {
+		organization, username = util.GetOwnerAndNameFromId(username)
+	}
+
 	log.Printf("handleAccountingRequest() username=%v, org=%v, statusType=%v", username, organization, statusType)
 	w.Write(r.Response(radius.CodeAccountingResponse))
 	var err error

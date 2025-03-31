@@ -30,6 +30,7 @@ class LanguageSelect extends React.Component {
     this.state = {
       classes: props,
       languages: props.languages ?? Setting.Countries.map(item => item.key),
+      onClick: props.onClick,
     };
 
     Setting.Countries.forEach((country) => {
@@ -50,13 +51,16 @@ class LanguageSelect extends React.Component {
   render() {
     const languageItems = this.getOrganizationLanguages(this.state.languages);
     const onClick = (e) => {
+      if (typeof this.state.onClick === "function") {
+        this.state.onClick(e.key);
+      }
       Setting.setLanguage(e.key);
     };
 
     return (
       <Dropdown menu={{items: languageItems, onClick}} >
         <div className="select-box" style={{display: languageItems.length === 0 ? "none" : null, ...this.props.style}} >
-          <GlobalOutlined style={{fontSize: "24px", color: "#4d4d4d"}} />
+          <GlobalOutlined style={{fontSize: "24px"}} />
         </div>
       </Dropdown>
     );
