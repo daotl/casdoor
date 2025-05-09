@@ -2,7 +2,7 @@ version: '3.1'
 services:
   casdoor:
     restart: unless-stopped
-    image: casbin/casdoor:v1.416.0
+    image: casbin/casdoor:${CASDOOR_TAG}
     #build:
     #  context: ./
     #  dockerfile: Dockerfile
@@ -27,12 +27,12 @@ services:
 
   postgres:
     restart: unless-stopped
-    image: postgres:16rc1-alpine
+    image: postgres:${POSTGRES_TAG}
     volumes:
       - casdoor_postgres:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: casdoor
-      POSTGRES_PASSWORD: casdoor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: casdoor
 
 networks:
