@@ -53,6 +53,14 @@ const template = `<style>
     background-color: #333333;
     box-shadow: 0 0 30px 20px rgba(255, 255, 255, 0.20);
   }
+  .forget-content {
+    padding: 10px 100px 20px;
+    margin: 30px auto;
+    border: 2px solid #fff;
+    border-radius: 7px;
+    background-color: rgb(255 255 255);
+    box-shadow: 0 0 20px rgb(0 0 0 / 20%);
+  }
 </style>`;
 
 const previewGrid = Setting.isMobile() ? 22 : 11;
@@ -718,6 +726,7 @@ class ApplicationEditPage extends React.Component {
                   {id: "token", name: "Token"},
                   {id: "id_token", name: "ID Token"},
                   {id: "refresh_token", name: "Refresh Token"},
+                  {id: "urn:ietf:params:oauth:grant-type:device_code", name: "Device Code"},
                 ].map((item, index) => <Option key={index} value={item.id}>{item.name}</Option>)
               }
             </Select>

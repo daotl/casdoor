@@ -37,6 +37,7 @@ import RedirectForm from "../common/RedirectForm";
 import {RequiredMfa} from "./mfa/MfaAuthVerifyForm";
 import {GoogleOneTapLoginVirtualButton} from "./GoogleLoginButton";
 import * as ProviderButton from "./ProviderButton";
+import {goToLink} from "../Setting";
 const FaceRecognitionCommonModal = lazy(() => import("../common/modal/FaceRecognitionCommonModal"));
 const FaceRecognitionModal = lazy(() => import("../common/modal/FaceRecognitionModal"));
 
@@ -63,6 +64,9 @@ class LoginPage extends React.Component {
       termsOfUseContent: "",
       orgChoiceMode: new URLSearchParams(props.location?.search).get("orgChoiceMode") ?? null,
       userLang: null,
+      loginLoading: false,
+      userCode: props.userCode ?? (props.match?.params?.userCode ?? null),
+      userCodeStatus: "",
     };
 
     if (this.state.type === "cas" && props.match?.params.casApplicationName !== undefined) {
@@ -79,7 +83,7 @@ class LoginPage extends React.Component {
     if (this.getApplicationObj() === undefined) {
       if (this.state.type === "login" || this.state.type === "saml") {
         this.getApplication();
-      } else if (this.state.type === "code" || this.state.type === "cas") {
+      } else if (this.state.type === "code" || this.state.type === "cas" || this.state.type === "device") {
         this.getApplicationLogin();
       } else {
         Setting.showMessage("error", `Unknown authentication type: ${this.state.type}`);
@@ -153,13 +157,25 @@ class LoginPage extends React.Component {
   }
 
   getApplicationLogin() {
-    const loginParams = (this.state.type === "cas") ? Util.getCasLoginParameters("admin", this.state.applicationName) : Util.getOAuthGetParameters();
+    let loginParams;
+    if (this.state.type === "cas") {
+      loginParams = Util.getCasLoginParameters("admin", this.state.applicationName);
+    } else if (this.state.type === "device") {
+      loginParams = {userCode: this.state.userCode, type: this.state.type};
+    } else {
+      loginParams = Util.getOAuthGetParameters();
+    }
     AuthBackend.getApplicationLogin(loginParams)
       .then((res) => {
         if (res.status === "ok") {
           const application = res.data;
           this.onUpdateApplication(application);
         } else {
+          if (this.state.type === "device") {
+            this.setState({
+              userCodeStatus: "expired",
+            });
+          }
           this.onUpdateApplication(null);
           this.setState({
             msg: res.msg,
@@ -264,6 +280,9 @@ class LoginPage extends React.Component {
 
   onUpdateApplication(application) {
     this.props.onUpdateApplication(application);
+    if (application === null) {
+      return;
+    }
     for (const idx in application.providers) {
       const provider = application.providers[idx];
       if (provider.provider?.category === "Face ID") {
@@ -294,6 +313,9 @@ class LoginPage extends React.Component {
     const oAuthParams = Util.getOAuthGetParameters();
 
     values["type"] = oAuthParams?.responseType ?? this.state.type;
+    if (this.state.userCode) {
+      values["userCode"] = this.state.userCode;
+    }
 
     if (oAuthParams?.samlRequest) {
       values["samlRequest"] = oAuthParams.samlRequest;
@@ -364,6 +386,7 @@ class LoginPage extends React.Component {
   }
 
   onFinish(values) {
+    this.setState({loginLoading: true});
     if (this.state.loginMethod === "webAuthn") {
       let username = this.state.username;
       if (username === null || username === "") {
@@ -388,6 +411,9 @@ class LoginPage extends React.Component {
       }).then(res => res.json())
         .then((res) => {
           if (res.status === "error") {
+            this.setState({
+              loginLoading: false,
+            });
             Setting.showMessage("error", res.msg);
             return;
           }
@@ -452,6 +478,8 @@ class LoginPage extends React.Component {
         } else {
           Setting.showMessage("error", `${i18next.t("application:Failed to sign in")}: ${res.msg}`);
         }
+      }).finally(() => {
+        this.setState({loginLoading: false});
       });
     } else {
       // OAuth
@@ -471,6 +499,11 @@ class LoginPage extends React.Component {
               this.props.onLoginSuccess();
             } else if (responseType === "code") {
               this.postCodeLoginAction(res);
+            } else if (responseType === "device") {
+              Setting.showMessage("success", "Successful login");
+              this.setState({
+                userCodeStatus: "success",
+              });
             } else if (responseType === "token" || responseType === "id_token") {
               if (res.data2) {
                 sessionStorage.setItem("signinUrl", window.location.pathname + window.location.search);
@@ -507,6 +540,8 @@ class LoginPage extends React.Component {
           } else {
             Setting.showMessage("error", `${i18next.t("application:Failed to sign in")}: ${res.msg}`);
           }
+        }).finally(() => {
+          this.setState({loginLoading: false});
         });
     }
   }
@@ -588,6 +623,9 @@ class LoginPage extends React.Component {
       )
       ;
     } else if (signinItem.name === "Username") {
+      if (this.state.loginMethod === "webAuthn") {
+        return null;
+      }
       return (
         <div key={resultItemKey}>
           <div dangerouslySetInnerHTML={{__html: ("<style>" + signinItem.customCss?.replaceAll("<style>", "").replaceAll("</style>", "") + "</style>")}} />
@@ -694,6 +732,7 @@ class LoginPage extends React.Component {
         <Form.Item key={resultItemKey} className="login-button-box">
           <div dangerouslySetInnerHTML={{__html: ("<style>" + signinItem.customCss?.replaceAll("<style>", "").replaceAll("</style>", "") + "</style>")}} />
           <Button
+            loading={this.state.loginLoading}
             type="primary"
             htmlType="submit"
             className="login-button"
@@ -711,7 +750,7 @@ class LoginPage extends React.Component {
                 values["FaceIdImage"] = FaceIdImage;
                 this.login(values);
                 this.setState({openFaceRecognitionModal: false});
-              }} onCancel={() => this.setState({openFaceRecognitionModal: false})} /></Suspense> :
+              }} onCancel={() => this.setState({openFaceRecognitionModal: false, loginLoading: false})} /></Suspense> :
                 <Suspense fallback={null}>
                   <FaceRecognitionModal
                     visible={this.state.openFaceRecognitionModal}
@@ -722,7 +761,7 @@ class LoginPage extends React.Component {
                       this.login(values);
                       this.setState({openFaceRecognitionModal: false});
                     }}
-                    onCancel={() => this.setState({openFaceRecognitionModal: false})}
+                    onCancel={() => this.setState({openFaceRecognitionModal: false, loginLoading: false})}
                   />
                 </Suspense>
               :
@@ -739,6 +778,8 @@ class LoginPage extends React.Component {
       if (signinItem.rule === "None" || signinItem.rule === "") {
         signinItem.rule = showForm ? "small" : "big";
       }
+      const searchParams = new URLSearchParams(window.location.search);
+      const providerHint = searchParams.get("provider_hint");
 
       return (
         <div key={resultItemKey}>
@@ -746,6 +787,10 @@ class LoginPage extends React.Component {
           <Form.Item>
             {
               application.providers.filter(providerItem => this.isProviderVisible(providerItem)).map((providerItem, id) => {
+                if (providerHint === providerItem.provider.name) {
+                  goToLink(Provider.getAuthUrl(application, providerItem.provider, "signup"));
+                  return;
+                }
                 return (
                   <span key={id} onClick={(e) => {
                     const agreementChecked = this.form.current.getFieldValue("agreement");
@@ -801,6 +846,16 @@ class LoginPage extends React.Component {
               }
             </Button>,
           ]}
+        >
+        </Result>
+      );
+    }
+
+    if (this.state.userCode && this.state.userCodeStatus === "success") {
+      return (
+        <Result
+          status="success"
+          title={i18next.t("application:Logged in successfully")}
         >
         </Result>
       );
@@ -923,7 +978,7 @@ class LoginPage extends React.Component {
         this.login(values);
         this.setState({openCaptchaModal: false});
       }}
-      onCancel={() => this.setState({openCaptchaModal: false})}
+      onCancel={() => this.setState({openCaptchaModal: false, loginLoading: false})}
       isCurrentProvider={true}
     />;
   }
@@ -966,6 +1021,10 @@ class LoginPage extends React.Component {
       return null;
     }
 
+    if (this.state.userCode && this.state.userCodeStatus === "success") {
+      return null;
+    }
+
     return (
       <div>
         <div style={{fontSize: 16, textAlign: "left"}}>
@@ -990,7 +1049,7 @@ class LoginPage extends React.Component {
     const oAuthParams = Util.getOAuthGetParameters();
     this.populateOauthValues(values);
     const application = this.getApplicationObj();
-    return fetch(`${Setting.ServerUrl}/api/webauthn/signin/begin?owner=${application.organization}&name=${username}`, {
+    return fetch(`${Setting.ServerUrl}/api/webauthn/signin/begin?owner=${application.organization}`, {
       method: "GET",
       credentials: "include",
     })
@@ -1000,11 +1059,7 @@ class LoginPage extends React.Component {
           Setting.showMessage("error", credentialRequestOptions.msg);
           throw credentialRequestOptions.status.msg;
         }
-
         credentialRequestOptions.publicKey.challenge = UserWebauthnBackend.webAuthnBufferDecode(credentialRequestOptions.publicKey.challenge);
-        credentialRequestOptions.publicKey.allowCredentials.forEach(function(listItem) {
-          listItem.id = UserWebauthnBackend.webAuthnBufferDecode(listItem.id);
-        });
 
         return navigator.credentials.get({
           publicKey: credentialRequestOptions.publicKey,
@@ -1054,6 +1109,12 @@ class LoginPage extends React.Component {
           .catch(error => {
             Setting.showMessage("error", `${i18next.t("general:Failed to connect to server")}${error}`);
           });
+      }).catch(error => {
+        Setting.showMessage("error", `${error}`);
+      }).finally(() => {
+        this.setState({
+          loginLoading: false,
+        });
       });
   }
 
@@ -1246,6 +1307,15 @@ class LoginPage extends React.Component {
   }
 
   render() {
+    if (this.state.userCodeStatus === "expired") {
+      return <Result
+        style={{width: "100%"}}
+        status="error"
+        title={`Code ${i18next.t("subscription:Expired")}`}
+      >
+      </Result>;
+    }
+
     const application = this.getApplicationObj();
     if (application === undefined) {
       return null;

@@ -459,6 +459,31 @@ func GetUserByEmail(owner string, email string) (*User, error) {
 	}
 }
 
+func GetUserByWebauthID(webauthId string) (*User, error) {
+	user := User{}
+	existed := false
+	var err error
+
+	if ormer.driverName == "postgres" {
+		existed, err = ormer.Engine.Where(builder.Like{"\"webauthnCredentials\"", webauthId}).Get(&user)
+	} else if ormer.driverName == "mssql" {
+		existed, err = ormer.Engine.Where("CAST(webauthnCredentials AS VARCHAR(MAX)) like ?", "%"+webauthId+"%").Get(&user)
+	} else if ormer.driverName == "sqlite" {
+		existed, err = ormer.Engine.Where("CAST(webauthnCredentials AS text) like ?", "%"+webauthId+"%").Get(&user)
+	} else {
+		existed, err = ormer.Engine.Where("webauthnCredentials like ?", "%"+webauthId+"%").Get(&user)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if !existed {
+		return nil, fmt.Errorf("user not exist")
+	}
+
+	return &user, err
+}
+
 func GetUserByEmailOnly(email string) (*User, error) {
 	if email == "" {
 		return nil, nil
@@ -812,12 +837,26 @@ func AddUser(user *User) (bool, error) {
 		return false, fmt.Errorf("the user's owner and name should not be empty")
 	}
 
+	if CheckUsername(user.Name, "en") != "" {
+		user.Name = util.GetRandomName()
+	}
+
 	organization, err := GetOrganizationByUser(user)
 	if err != nil {
 		return false, err
 	}
 	if organization == nil {
 		return false, fmt.Errorf("the organization: %s is not found", user.Owner)
+	}
+
+	if user.Owner != "built-in" {
+		applicationCount, err := GetOrganizationApplicationCount(organization.Owner, organization.Name, "", "")
+		if err != nil {
+			return false, err
+		}
+		if applicationCount == 0 {
+			return false, fmt.Errorf("The organization: %s should have one application at least", organization.Owner)
+		}
 	}
 
 	if organization.DefaultPassword != "" && user.Password == "123" {
